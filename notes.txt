@@ -1,0 +1,273 @@
+#notes
+
+0x80432A28 = frame advance on/off
+
+0x804C1FAC - Controller data
+0x804C1FB0 - Prev. frame controller data
+      - Each controller is offset by 0x44
+      - Bit Flags:  xxxx xxxx UDLR UDLR xxxS YXBA xLRZ UDRL
+
+0x801a500c does not run when the game is frozen
+
+800192c4 - current injection point
+
+0x804C1fac P1 digital button data
+
+Backup of registers, 5/12:
+  r   start        end
+  --- -----       -----
+  r0:   800195e8  	r0:
+  r1:   804eeac0  	r1:
+  r2:   804df9e0  	r2:
+  r3:   8001955c  	r3:
+  r4:   803c0000  	r4:
+  r5:   0000b932  	r5:
+  r6:   80000000  	r6:
+  PC:   800192c4  	PC:
+  LR:   800195e8  	LR:
+  CTR:  00000000  	CTR:
+  CR:   20900088  	CR:
+  FSPCR:00000000  	FSPCR:
+  MSR:  0000b932  	MSR:
+  SRR0: 800196a4  	SRR0:
+  SRR1: 00003932  	SRR1:
+
+digital buttons pre-freeze are saved, what!
+
+0x80376bb8 Dan says this is a good function to use for input polling:
+
+"[11:34 AM] dansalvato: It's the lowest-level input data that comes right after the hardware is polled."
+
+This should help with the issues that occur when I can't grab inputs while in frame advance mode
+
+This line of code seems to run once each frame.
+The code itself is stw	r4, 0 (r3)
+r3 in this case is a memory address: 0x8046b108
+
+I have no idea what that address is doing, it updates when I give inputs, but only when I'm actually able to give input??
+
+bitmap of lowlevelinputfunction:
+  p1:
+     A: 01000000
+     B: 02000000
+     X: 04000000
+     Y: 08000000
+     S: 10000000
+     L: 00400000
+     R: 00200000
+     Z: 00100000
+    Au: 0000007f
+    Ad: 00000081
+    Al: 00008100
+    Ar: 00007f00
+   *Cu: 00000000
+   *Cd: 00000000
+   *Cl: 00000000
+   *Cr: 00000000
+    Du: 00080000
+    Dd: 00040000
+    Dl: 00010000
+    Dr: 00020000
+
+  So this is a bitmap that looks like this:
+    xxxS YXBA xLRZ dpad [LR    Analog   UD]
+   -0000 0000 0000 0000 0000 0000 0000 0000-
+
+   This is extremely similar to the bitmap for the other input memory addr.
+
+   *c inputs are on next word, they're at the start and are equal to analog
+
+801a4510 0 ac_DevelopMode_FrameAdvanceCheck
+
+Maybe I should see what frameadvancecheck is doing
+
+a breakdown of frameadvancecheck:
+   801a4510 -start
+   801a4620 -end
+
+  0x110 lines long (176)
+
+8 BIT MEMORY ADDRESSES THAT SEEM TO UPDATE WITH P1 Z PRESS (15 of them)
+  0x80:           NOTES
+    46B109  |   This is the one from ds_lowlevelinputpoll
+    46B139  |     0x30 from ds_lowlevelinputpoll
+    46B169  |     0x60
+    46B199  |     0x90
+    46B1C9  |     0xC0
+    479C37  |
+    479CF7  |
+    4C1FAF  |
+    4C1FB3  |
+    4C20BF  |
+    4C20C3  |
+    4C21CF  |
+    4C21D3  |
+    C6BFBF  |
+    C6BFC3  |
+
+  Now I'll test with frameadvance on 80000000
+
+  ...nothing at all
+
+Oh wait, I should just hook 80376bb8 (ds_lowlevelinputfunction) into my function, I wonder what the in/out are
+
+Achilles notes on drawing rectangles:
+
+
+  I don't really have good notes about it, but it's not a draw rectangle function. It is text with a background color. If you make the text invisible with an opaque bg color, then it just looks like a rectangle. This is what Dan did for the input display with TE. The text structs are the same ones used for Develop Mode (like when you press Y+D-Pad Down to display the action state names --> this structure just has a transparent bg color).
+
+  These were the functions I labeled.
+
+  80302834 00000180 80302834 0 ___ac_Text_CreateDataTable
+  80302a3c 0000004c 80302a3c 0 ___ac_DevelopMode_Text_ResetCursorX&Y
+  80302a88 00000028 80302a88 0 ___ac_DevelopMode_Text_ResetCursorX
+  80302bb0 00000034 80302bb0 0 ___ac_DevelopMode_Text_Erase
+  80302d4c 000000a4 80302d4c 0 ___ac_DevelopMode_Text_Display
+
+
+
+  Text Data Struct
+  ------------
+  0x00   short   x offset (0=screenleft)
+  0x02   short   y offset (0=screentop)
+  0x04   byte    max character width of menu
+  0x05   byte    max rows (?)
+  0x06   byte    current character count cursor point (left to right)
+  0x07   byte    current row cursor point (top to bottom)
+  0x08   float   width of menu (stretch)
+  0x0C   float   height of menu (stretch)
+  0x10   word    background color (box behind letters)
+  0x14   word    text color
+  0x24   short   text boldness (two bytes that make this short must be same)
+  0x26   byte     (00000000) = show text and background
+        (00000040) = hide background
+        (00000080) = hide text
+  0x27   byte    text color hue change? 0x00 to 0x03
+  0x28   point   location of ASCII to display on screen
+  0x2C   point   previous text structure
+  0x30   point   next text structure
+
+  *****************
+  * 20XX TE Notes *
+  *****************
+  - these were from a day or two after the initial TE release...
+
+  version 1a
+
+  Input Display
+  Flag @ 80469db8
+
+  If ON, writes 803fd000 to 804d6e18
+  Text data structs ["rectangle" data] is at 803fd000 to 803fd8f0
+
+  I believe 804d6e18 is a pointer to the first texture data struct. Dan overwrites this pointer to point to his own list.
+
+  Not sure if any of this has changed position since version 1a (initial release)....
+
+  If you turn Develop Mode on, I believe 0x804a200c = Y+D-Pad Down action states text data struct.
+
+  So turn that feature on and then go to that struct and start modifying things to get a sense for how the text struct data works.
+
+Achilles advice on frame advance:
+  Try this:
+  @ 80479d68
+
+  Freeze: set to 0x01010001
+  Frame Advance: set to 0x01010100
+  Unfreeze: set to 0x00000001
+
+  Should be just like Develop Mode.
+
+setting the address to 0x00000000 while in frame advance does nothing
+
+Achilles unfreeze method seems to work fine.
+
+-------------------
+-Fixed a bug with the compare on the fa address in _if_frozen
+
+now it's back to freezing out the gate, which is problem an issue with my injection site running more than once each frame
+
+This should be less of an issue now that my frame advance method is more sound though, I just need to find a method that runs exactly once each frame. Easy.
+
+whoa, setting to 01010001 will disable inputs but not freeze things
+
+801a500c [lwz	r0, 0x000C (r25)] only seems to run once a frame
+
+When setting the address to 0x01010100, the next frame will
+render normally, and then the game will freeze on the frame
+following that one.
+
+OH WOW 0x80479d68 is the byte that controls pauses
+
+that's why this is getting so messy! I'm reading a pause state
+as the exact same as being in frame advance and so am messing
+everything up!
+
+well, now the game won't ever need my _pause_status code in
+the way it's currently designed, I need to change it to skip the
+majority of the code if the word contained there is 0x02000000
+(normal pause)
+
+
+
+
+
+CHECKS TO PASS moment of truth
+
+  Required before first play-test ✓
+    ✓- doesn't freeze in menus
+    ✓- doesn't freeze in a non-frame advance way
+    ✓- custom in game timer is counting up
+    ✓- custom timer stops at multiple of allotted time
+    ✓- both players can unfreeze game with start
+    ✓- both players can frame advance with Z
+    ✓- both players inputs are read during frame advance
+    ✓- timer stops counting when a player has paused
+    ✓- pause works normally when not frozen
+
+  Optional stuff ✕
+    ✕- start does not pause immediately on resuming the game
+    ✓- code toggles on an in-game input(R+A+dL)
+    ✓- timer resets on toggle off
+    ✕- code gives a signal when toggled on or off
+    ✕- make time between pauses semi-random
+    ✕- insert more comments, restore lost ones, fix old ones
+    ✕- optimize code, mostly for lower line count
+    ✕- code plays nice with other gecko codes
+
+  Magic Christmas Dreamland ✕✕✕✕✕✕✕✕✕✕✕✕
+    ✕- d pad pans camera in frame advance
+    ✕- display each frame's inputs during freeze
+    ✕- make time between pauses modifiable
+
+  Next steps
+    ✕- Change timer interval to ~a minute
+    ✕- Get it working on console
+    ✕- Playtest without crashes or other issues
+
+
+
+-----------------------------------------------------
+IT WORKS - time to work on the little additional stuff
+
+at a 3600 frame interval, the game freezes for the first
+time at MM:02:07, where MM = the starting minutes - 1
+
+next freeze happens at 02:09
+
+next at 02:11
+
+seems like it's actually using the interval set -1 frames!
+
+xxxx xxxx UDLR UDLR xxxS YXBA xLRZ UDLR
+0000 0000 0000 0000 0000 0000 0000 0000
+
+so the value for R + A + dpad-L is:
+   A   R     dL
+0001 0010 0001
+
+or 100100001 in binary, 289 in dec, 0x121 in hex
+
+CHANGES:
+  -_unset_freeze now goes to _restore instead of _toggle, this should help fix some of the issues with the timer being off by 1 frame
+  -_unset_freeze now sets each player's prev. frame inputs to include start, so that the game won't register a pause after unfreezing.
