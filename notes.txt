@@ -271,3 +271,13 @@ or 100100001 in binary, 289 in dec, 0x121 in hex
 CHANGES:
   -_unset_freeze now goes to _restore instead of _toggle, this should help fix some of the issues with the timer being off by 1 frame
   -_unset_freeze now sets each player's prev. frame inputs to include start, so that the game won't register a pause after unfreezing.
+
+
+801a500c - current injection point
+
+when calling an outer function, I need to move the address of that function to the control register and then branch there (bctrl)
+
+
+NICE, if I write 0x02020001 to the pause address during _unset_freeze (instead of 0x00000001), it turns frame advance mode
+off and activates normal pause, but then reads the start input later in that frame and writes 0x0000 over the 0x0202, essentially
+negating the start input. This fixes the issues where it would pause immediately after unfreezing.

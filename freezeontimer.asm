@@ -74,7 +74,10 @@ _toggle:
     lbz     r4, 0x3(r3)     #this is the flag used to toggle the code
     xori    r4, r4, 1       #negate 0x80002D6F if R+A+dpadL was pressed by anyone
     stb     r4, 0x3(r3)
-    bl      0x80174338      #branch to the play menu forward sfx function
+    lis     r4, 0x8017
+    ori     r4, r4, 0x4338
+    mtctr   r4 #branch to the play menu forward sfx function
+    bctrl
     li      r4, 0
     sth     0, 0(r3)       #reset the timer on each toggle, not optimal but whatevs
     _check_flag:
@@ -109,19 +112,22 @@ _set_freeze:
     nop
 
 _unset_freeze:
-    li    r5, 1
-    lis 	r3, 0x8047
-    ori 	r3, r3, 0x9d68
-    stw		r5, 0(r3)         #store 1 in the frame advance address, unfreezes everything
-    lis   r3, 0x804C
-    ori	r3,r3, 0x1F6c       #load up the prev. frame input address -0x44
-    li    r5, 4
-    mtctr r5                #put 4 in ctr so we can loop through each controller
-    _set_prev_input_to_start: #this is so that the game doesn't pause immediately after unfreezing
-        addi r3,r3,0x44     #each player's block is 0x44 apart
-        lwz r5, 0(r3)
-        addi r5, r5, 0x1000 #setting start bit to register on prev frame
-        bdnz  _set_prev_input_to_start
+    lis   r5, 0x0202        # 0x0202 is normal pause, I use this to trick the game into thinking it was paused
+    addi  r5,r5, 0x0001     # this causes it to "unpause" immediately on reading the player's start input
+    lis 	r3, 0x8047        # thus stopping a pause from occuring immediately on unfreeze.
+    ori 	r3, r3, 0x9d68    # as far as I can tell, 0x00000001 seems to turn frame advance off
+    stw		r5, 0(r3)         #store 0x02020001 in the frame advance address, unfreezes everything
+    # this section just sets the previous frame inputs to include "start" for all players,
+    # keeping it temporarily just in case removing it broke something
+        #lis   r3, 0x804C
+        #ori	r3,r3, 0x1F6c       #load up the prev. frame input address -0x44
+        #li    r5, 4
+        #mtctr r5                #put 4 in ctr so we can loop through each controller
+        #_set_prev_input_to_start: #this is so that the game doesn't pause immediately after unfreezing
+        #    addi r3,r3,0x44     #each player's block is 0x44 apart
+        #    lwz r5, 0(r3)
+        #    addi r5, r5, 0x1000 #setting start bit to register on prev frame
+        #    bdnz  _set_prev_input_to_start
     b     _restore #_toggle           #now that the game is unfrozen, we need to check toggle status
     nop
 
