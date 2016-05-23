@@ -20,13 +20,24 @@ _if_not_in_match:
     _check_if_match_loop:
         lwz r4, 0(r3)
         cmpwi  r4, 0x02
-        beq   _pause_status #0x02 indicates that player is in-match, proceed
+        beq   _check_flag2 #0x02 indicates that player is in-match, proceed
         nop
         addi  r3, r3, 0xE90  # the players are 0xE90 apart
         bdnz  _check_if_match_loop # loop this code until we've checked all 4
         nop                        # or have found a 0x02
     b   _restore         #if players in match == 0, exit code
     nop
+
+_check_flag2 # we need to check if last frame was the unfreeze frame
+    lis     r3,	0x8000
+    ori     r3,r3,	0x2D6E 	#0x80002D6E is the temp. location of my flags
+    lhz     r4, 0(r3)
+    andi.   r5, r4, 0x0010
+    beq     _pause_status   # if the flag bit == 0, branch onwards
+    xori    r4, r4, 0x0010  # else, flip that flag off
+    lis     r3, 0x8047
+    ori     r3,r3, 0x9d68	  #0x80479d68 is a byte that controls pauses
+    stb     0,0(r3)         #store 0 in the pause byte, indicating normal gameplay
 
 _pause_status:
     lis     r3, 0x8047
@@ -116,18 +127,12 @@ _unset_freeze:
     addi  r5,r5, 0x0001     # this causes it to "unpause" immediately on reading the player's start input
     lis 	r3, 0x8047        # thus stopping a pause from occuring immediately on unfreeze.
     ori 	r3, r3, 0x9d68    # as far as I can tell, 0x00000001 seems to turn frame advance off
-    stw		r5, 0(r3)         #store 0x02020001 in the frame advance address, unfreezes everything
-    # this section just sets the previous frame inputs to include "start" for all players,
-    # keeping it temporarily just in case removing it broke something
-        #lis   r3, 0x804C
-        #ori	r3,r3, 0x1F6c       #load up the prev. frame input address -0x44
-        #li    r5, 4
-        #mtctr r5                #put 4 in ctr so we can loop through each controller
-        #_set_prev_input_to_start: #this is so that the game doesn't pause immediately after unfreezing
-        #    addi r3,r3,0x44     #each player's block is 0x44 apart
-        #    lwz r5, 0(r3)
-        #    addi r5, r5, 0x1000 #setting start bit to register on prev frame
-        #    bdnz  _set_prev_input_to_start
+    stw		r5, 0(r3)         # store 0x02020001 in the frame advance address, unfreezes everything
+    lis     r3,	0x8000      # set the prev. frame unfrozen flag, unsetting this next frame should fix pause issues
+    ori     r3,r3,	0x2D6E
+    lhz     r4, 0(r3)
+    addi    r4, r4, 0x0010
+    sth     r4, 0(r3)
     b     _restore #_toggle           #now that the game is unfrozen, we need to check toggle status
     nop
 

@@ -224,6 +224,8 @@ CHECKS TO PASS moment of truth
     ✓- both players inputs are read during frame advance
     ✓- timer stops counting when a player has paused
     ✓- pause works normally when not frozen
+    ✕- p2-4 unfreeze doesn't cause odd half-pause
+    ✕- code works as a DOL mod
 
   Optional stuff ✕
     ✕- start does not pause immediately on resuming the game
@@ -281,3 +283,236 @@ when calling an outer function, I need to move the address of that function to t
 NICE, if I write 0x02020001 to the pause address during _unset_freeze (instead of 0x00000001), it turns frame advance mode
 off and activates normal pause, but then reads the start input later in that frame and writes 0x0000 over the 0x0202, essentially
 negating the start input. This fixes the issues where it would pause immediately after unfreezing.
+
+
+Now to DOL mod (gecko seems to be broken on console with USB loading)
+
+0x8032dcb0	0x8032ddbc	size:10C	Unused code function (nop 801a4f84 and 801a5070)
+
+fist nop offset should be       1A7F84 second:  1A2070
+NOPE WRONG
+
+first nop is at 1a1b64, second at 1a1c50
+
+got it at least
+
+32a890: DOL offset I need to clear out
+
+32a898: DOL offset my code starts at
+
+1A1BEC: DOL offset of my injection point, machine code @ injection = 80 19 00 0C
+
+entering my code: branching from 801a500c to 803fa3e8, offset of: 0x2553DC                machine language: 482553DC
+leaving my code:  branching from 803fa64c to 801a5010, offset of: -0x188F0C, or: 0xFFE770F4 machine language: 4BDB49C4
+
+branching backwards
+b 0x (FFFF FFFF - (start memory address - end memory address) )+1
+
+branching forward
+b 0x end address - start address
+
+wtf how did the DOL get bigger?
+
+last offset in DOL right now (real one): 004385FC
+
+
+...shit, I actually needed 0x270 of space for this :(
+
+3f73e8 overwritten with 0s (the debug mode stuff)
+
+doing tht broke everything wow
+
+803fa3e8 debug menu tables/strings
+
+003f73e8 definitely seems to be where I'm supposed to start. What the heck
+
+machine code to write in:
+    3821FFD8 90010004
+    90610008 9081000C
+    90A10010 90C10014
+    93E10018 7C6902A6
+    9061001C 7C6802A6
+    90610020 60000000
+    3C608045 60633080
+    38800004 7C8903A6
+    80830000 2C040002
+    4182001C 60000000
+    38630E90 4200FFEC
+    60000000 480001D8
+    60000000 3C608047
+    60639D68 88830000
+    2C040002 418201C0
+    60000000 3C608047
+    60639D68 80830000
+    2C040000 41820048
+    60000000 38A01000
+    480000F1 60000000
+    2C050000 418100C8
+    60000000 38A00010
+    480000D9 60000000
+    2C050000 41820178
+    60000000 38840100
+    90830000 48000168
+    60000000 38A00121
+    480000B1 60000000
+    3C608000 60632D6C
+    2C050001 40820028
+    88830003 68840001
+    98830003 3C808017
+    60844338 7C8903A6
+    4E800421 38800000
+    B0030000 88830003
+    2C040000 41820118
+    60000000 A0830000
+    38840001 B0830000
+    38A00E10 7C642BD6
+    7C6329D6 7C632051
+    418100F4 60000000
+    48000008 60000000
+    3CA00101 38A50001
+    3C608047 60639D68
+    98A30000 480000D0
+    60000000 3CA00202
+    38A50001 3C608047
+    60639D68 90A30000
+    480000B4 60000000
+    3821FFE4 90610004
+    7C6902A6 90610014
+    90810008 90C10010
+    38600004 7C6903A6
+    3C60804C 60631FAC
+    38C00000 4800000C
+    60000000 38630044
+    80830004 7C842838
+    7C042800 41820040
+    60000000 80830000
+    7C842838 7C042800
+    4082000C 60000000
+    38C00001 4200FFD0
+    60000000 2C060000
+    41820014 60000000
+    38A00001 48000014
+    60000000 38A00000
+    48000008 60000000
+    80610014 7C6903A6
+    80610004 80810008
+    80C10010 3821001C
+    4E800020 80610020
+    7C6803A6 8061001C
+    7C6903A6 80010004
+    80610008 8081000C
+    80A10010 80C10014
+    83E10018 38210028
+    8019000C 60000000
+    60000000 00000000
+
+
+OH yeah! When the game is manually set to pause, not all
+players may unpause it, only the player who paused most
+recently (or if nobody has, p1), so when p2 tries to unpause
+the game after hitting start, it doesn't sucessfully
+undo the pause. p1 is fine but p2 needs to have been
+the last person to pause in order to unpause
+
+I need to find a better solution I guess. Somehow I need
+the game to disallow pausing for a few frames after I
+unfreeze. Is there a bit for that?
+
+Or I could try Joseph's method of finding the bit for
+disabling/enabling pause. This MIGHT be really easy,
+worth trying to cheatsearch for it.
+
+0x804A04F4 - This seems like it could be what I'm looking for
+appears to be 1 when pause is on, 0 when pause is off
+(single byte)
+
+Hah, writing to it while on the menu screen even makes the
+animation happen where it switches to pause being off/on
+
+Oh wait shit it only does that when I have it highlighted
+
+If I have a different option select highlighted, it just
+alters that one :\ Guess I need more cheatsearch.
+
+Got two more contenders: 0x80045B1A and 0x8112F364
+
+an 81 address seems odd, I don't see those too often
+
+
+test addr #1: 0x80045B1A: 0001909B
+          #2: 0x8112F364: 01000000
+
+The second one seems more like, the byte immediately after
+seems to flip whenever I turn score display on/off
+
+Oh wait no, one is just a mirror of the other one?
+
+Byte  1: Pause on/off
+      2: Score display on/off
+      3: Self-Destructs 0/1/2 (corresponds to -1/0/-2)
+      4: ?
+
+changing the values in #1 seems to have no effect on #2,
+and if you change it and then move the ticker in game,
+#2 updates to the new in-game value and #1 stays at what
+you flipped it to, not changing at all.
+
+flipping just #2 causes it to flip back immediately,
+and then plays the animation for the on/off switch happening
+but it plays it switching back to the one you were already
+on. Confusing.
+
+Test: flip both and then frame advance.
+
+If I flip #1 when I DON'T have the menu option highlighted,
+it works exactly how I want it to (turns pause off)
+
+time to test this in game.
+
+the 81 address's value changed to 03000000 while in game
+
+no idea what that means, but it's probably unreliable
+The other address is modifiable, and will remain modified
+after I change anything, but it seems to have no effect
+on the actual game state.
+
+Unsetting that 3 seems to have no effect on the state of the
+game. oh well.
+
+as long as I'm not on the menu where that pause option is,
+it seems to stick when I turn it on or off. I'm still allowed
+to pause the game though :\
+
+Yup, looks like that's not going to help, seems like whether
+pause is enabled or not is determined at the game's start
+
+I could set a flag during unset freeze that would tell the
+code upon running next frame that it needs to set the pause
+byte to 00, then I could set pause to 0202 which would stop
+any player's pause press from registering (since the game
+has just been paused, according to it). Seems like an awkward
+solution to the problem though.
+
+0x8046DB80		Start of Current Match information
+
+^ it could be in there somewhere.
+
+0x8045BF10		Start of current multiplayer match settings
+I need to look into the documentation on this that's written
+in the DOL mod topic.
+
+Nope this just pointed to what I already knew, I guess it's
+worth checking the current match information one, but it
+seems that changing whether pause is on or off during a match
+won't actually affect whether or not players are currently
+allowed to pause. I wonder what would? No matter what I would
+need some kind of flag to be set that would allow me to turn
+the setting off once I flipped it to stop the pause from
+happening. Tomorrow I should try setting a flag and then the
+pause bit to 02, then detecting the flag next frame and
+unsetting it, while also unsetting the pause byte
+
+That should allow the game to ignore the pause input,
+although it may cause the unfreeze to happen 1 frame slower
+than it should, which may feel clunky. We'll see, I need to
+get some sleep.
